@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -304,7 +304,7 @@ const PIECE_NAMES = {
 //  初始化棋盘
 // ============================================================
 function initBoard() {
-  board = Array.from({length: ROWS}, () => Array(COLS).null);
+  board = Array.from({length: ROWS}, () => Array(COLS).fill(null));
 
   const backRow = ['rook','knight','bishop','advisor','king','advisor','bishop','knight','rook'];
 
