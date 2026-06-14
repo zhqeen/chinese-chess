@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -342,6 +342,30 @@
     border: none;
   }
 
+  .difficulty-select {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 10px;
+  }
+  .difficulty-select button {
+    padding: 3px 10px;
+    font-size: 12px;
+    background: rgba(139,90,43,0.2);
+    border: 1px solid rgba(212,168,67,0.3);
+    color: #e8d5a3;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .difficulty-select button.active {
+    background: rgba(212,168,67,0.4);
+    border-color: #d4a843;
+    color: #fff;
+  }
+  .difficulty-select button:hover {
+    background: rgba(212,168,67,0.3);
+  }
   .music-label {
     font-size: 12px;
     color: #a89070;
@@ -363,6 +387,12 @@
       <button onclick="setMode('pvp')">双人对弈</button>
       <button onclick="setMode('ai-red')">电脑执红</button>
       <button onclick="setMode('ai-black')">电脑执黑</button>
+    </div>
+    <div class="difficulty-select" id="difficultySelect" style="display:none;">
+      <span class="music-label">难度:</span>
+      <button onclick="setDifficulty(1)" id="diffEasy">简单</button>
+      <button onclick="setDifficulty(2)" id="diffMedium" class="active">中等</button>
+      <button onclick="setDifficulty(3)" id="diffHard">困难</button>
     </div>
   </div>
 
@@ -425,6 +455,7 @@ let legalMoves = [];
 let moveHistory = [];
 let gameOver = false;
 let gameMode = 'pvp';
+let aiDepth = 2;
 let aiThinking = false;
 let capturedRed = [];
 let capturedBlack = [];
@@ -940,9 +971,12 @@ function makeMove(fromR, fromC, toR, toC) {
     aiThinking = true;
     document.getElementById('thinkingIndicator').textContent = '电脑思考中...';
     setTimeout(function() {
-      aiMove();
-      aiThinking = false;
-      document.getElementById('thinkingIndicator').textContent = '';
+      try {
+        aiMove();
+      } finally {
+        aiThinking = false;
+        document.getElementById('thinkingIndicator').textContent = '';
+      }
     }, 300);
   }
 }
@@ -1035,7 +1069,7 @@ function orderMoves(moves, b) {
   return moves;
 }
 
-var AI_TIME_LIMIT = 2000;
+var AI_TIME_LIMIT = 3000;
 var aiStartTime = 0;
 var aiTimedOut = false;
 
@@ -1043,7 +1077,7 @@ function alphaBeta(b, depth, alpha, beta, isMaximizing, aiColor) {
   if (aiTimedOut) return 0;
   if (Date.now() - aiStartTime > AI_TIME_LIMIT) { aiTimedOut = true; return 0; }
   var color = isMaximizing ? aiColor : (aiColor === 'red' ? 'black' : 'red');
-  if (depth <= 0) return evaluateBoard(b);
+  if (depth <= 0) { var sc = evaluateBoard(b); return (aiColor === "red") ? sc : -sc; }
   var moves = allLegalMoves(color, b);
   if (moves.length === 0) {
     if (isInCheck(color, b)) return isMaximizing ? (-99999 - depth) : (99999 + depth);
@@ -1082,31 +1116,37 @@ function alphaBeta(b, depth, alpha, beta, isMaximizing, aiColor) {
 }
 
 function aiMove() {
-  if (gameOver) return;
-  var aiColor = currentPlayer;
-  var moves = allLegalMoves(aiColor, board);
-  if (moves.length === 0) return;
-  if (moves.length === 1) {
-    makeMove(moves[0].from.row, moves[0].from.col, moves[0].to.row, moves[0].to.col);
-    return;
-  }
-  aiStartTime = Date.now();
-  aiTimedOut = false;
-  orderMoves(moves, board);
-  var bestScore = -Infinity;
-  var bestMove = moves[0];
-  for (var i = 0; i < moves.length; i++) {
-    if (aiTimedOut && i > 0) break;
-    var m = moves[i];
-    var cap = board[m.to.row][m.to.col]; var pc = board[m.from.row][m.from.col];
-    board[m.to.row][m.to.col] = pc; board[m.from.row][m.from.col] = null;
-    var ms = alphaBeta(board, 2, -Infinity, Infinity, false, aiColor);
-    board[m.from.row][m.from.col] = pc; board[m.to.row][m.to.col] = cap;
-    if (ms > bestScore) {
-      bestScore = ms; bestMove = m;
+  try {
+    if (gameOver) return;
+    var aiColor = currentPlayer;
+    var moves = allLegalMoves(aiColor, board);
+    if (moves.length === 0) return;
+    if (moves.length === 1) {
+      makeMove(moves[0].from.row, moves[0].from.col, moves[0].to.row, moves[0].to.col);
+      return;
     }
+    aiStartTime = Date.now();
+    aiTimedOut = false;
+    orderMoves(moves, board);
+    var bestScore = -Infinity;
+    var bestMove = moves[0];
+    for (var i = 0; i < moves.length; i++) {
+      if (aiTimedOut && i > 0) break;
+      var m = moves[i];
+      var cap = board[m.to.row][m.to.col]; var pc = board[m.from.row][m.from.col];
+      board[m.to.row][m.to.col] = pc; board[m.from.row][m.from.col] = null;
+      var ms = alphaBeta(board, aiDepth, -Infinity, Infinity, true, aiColor);
+      board[m.from.row][m.from.col] = pc; board[m.to.row][m.to.col] = cap;
+      if (ms > bestScore) {
+        bestScore = ms; bestMove = m;
+      }
+    }
+    makeMove(bestMove.from.row, bestMove.from.col, bestMove.to.row, bestMove.to.col);
+  } catch(e) {
+    console.error('AI error:', e);
+    aiThinking = false;
+    document.getElementById('thinkingIndicator').textContent = '';
   }
-  makeMove(bestMove.from.row, bestMove.from.col, bestMove.to.row, bestMove.to.col);
 }
 //  交互 - 棋盘点击（点击空白交叉点走棋）
 // ============================================================
@@ -1312,6 +1352,23 @@ function resetGame() {
 
 function setMode(mode) {
   gameMode = mode;
+  var diffSel = document.getElementById('difficultySelect');
+  if (mode === 'ai-red' || mode === 'ai-black') {
+    diffSel.style.display = 'flex';
+  } else {
+    diffSel.style.display = 'none';
+  }
+  resetGame();
+}
+
+function setDifficulty(depth) {
+  aiDepth = depth;
+  document.querySelectorAll('.difficulty-select button').forEach(function(btn) {
+    btn.classList.remove('active');
+  });
+  if (depth === 1) document.getElementById('diffEasy').classList.add('active');
+  else if (depth === 2) document.getElementById('diffMedium').classList.add('active');
+  else if (depth === 3) document.getElementById('diffHard').classList.add('active');
   resetGame();
 }
 
