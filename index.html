@@ -921,25 +921,23 @@ function isAITurn() {
 // ============================================================
 
 // ============================================================
-//  AI 智能引擎 - Alpha-Beta 剪枝搜索
 // ============================================================
-
-var AI_DEPTH = 3; // 搜索深度（层数）
+//  AI 智能引擎 - 快速高效版
+// ============================================================
 
 // 基础棋子价值
 var PIECE_VALUES = {
   king: 10000,
   rook: 600,
   cannon: 300,
-  knight: 270,
-  bishop: 120,
-  advisor: 120,
+  knight: 280,
+  bishop: 130,
+  advisor: 130,
   pawn: 30
 };
 
-// 位置价值表 - 根据棋子类型和位置评估
-// 车的位置价值表（鼓励车占据要道）
-var ROOK_POS_VALUE = [
+// 车的位置价值表
+var ROOK_POS = [
   [14,14,14,16,18,16,14,14,14],
   [16,18,20,22,22,22,20,18,16],
   [14,16,18,20,20,20,18,16,14],
@@ -952,334 +950,181 @@ var ROOK_POS_VALUE = [
   [10,10,12,14,16,14,12,10,10]
 ];
 
-// 马的位置价值表（鼓励马跳到好位置）
-var KNIGHT_POS_VALUE = [
-  [4, 8, 16, 12, 4, 12, 16, 8, 4],
-  [4, 10, 28, 16, 8, 16, 28, 10, 4],
-  [12, 14, 16, 20, 18, 20, 16, 14, 12],
-  [8, 24, 18, 24, 20, 24, 18, 24, 8],
-  [6, 16, 14, 18, 16, 18, 14, 16, 6],
-  [4, 12, 16, 14, 12, 14, 16, 12, 4],
+// 马的位置价值表
+var KNIGHT_POS = [
+  [4, 8,16,12, 4,12,16, 8, 4],
+  [4,10,28,16, 8,16,28,10, 4],
+  [12,14,16,20,18,20,16,14,12],
+  [8,24,18,24,20,24,18,24, 8],
+  [6,16,14,18,16,18,14,16, 6],
+  [4,12,16,14,12,14,16,12, 4],
   [2, 8, 8, 8, 4, 8, 8, 8, 2],
   [0, 4, 8, 8, 4, 8, 8, 4, 0],
-  [0, -2, 0, 4, -4, 4, 0, -2, 0],
-  [0, 0, -2, 0, 0, 0, -2, 0, 0]
+  [0,-2, 0, 4,-4, 4, 0,-2, 0],
+  [0, 0,-2, 0, 0, 0,-2, 0, 0]
 ];
 
 // 炮的位置价值表
-var CANNON_POS_VALUE = [
-  [6, 4, 0, -10, -12, -10, 0, 4, 6],
-  [2, 2, 0, -4, -14, -4, 0, 2, 2],
-  [2, 2, 0, -10, -8, -10, 0, 2, 2],
-  [0, 0, -2, 4, 10, 4, -2, 0, 0],
+var CANNON_POS = [
+  [6, 4, 0,-10,-12,-10, 0, 4, 6],
+  [2, 2, 0, -4,-14, -4, 0, 2, 2],
+  [2, 2, 0,-10, -8,-10, 0, 2, 2],
+  [0, 0, -2, 4, 10, 4,-2, 0, 0],
   [0, 0, 0, 2, 8, 2, 0, 0, 0],
-  [-2, 0, 4, 2, 6, 2, 4, 0, -2],
+  [-2,0, 4, 2, 6, 2, 4, 0,-2],
   [0, 0, 0, 2, 4, 2, 0, 0, 0],
   [4, 0, 8, 6, 10, 6, 8, 0, 4],
   [0, 2, 4, 6, 6, 6, 4, 2, 0],
   [6, 6, 2, 6, 6, 6, 2, 6, 6]
 ];
 
-// 兵/卒的位置价值表（过河后价值大增）
-var RED_PAWN_POS_VALUE = [
+// 红兵位置价值表（过河后价值增加）
+var RED_PAWN_POS = [
   [0, 0, 0, 0, 0, 0, 0, 0, 0],
   [0, 0, 0, 0, 0, 0, 0, 0, 0],
   [0, 0, 0, 0, 0, 0, 0, 0, 0],
   [0, 0, 0, 0, 0, 0, 0, 0, 0],
   [0, 0, 1, 0, 2, 0, 1, 0, 0],
   [2, 0, 4, 0, 6, 0, 4, 0, 2],
-  [4, 6, 12, 14, 16, 14, 12, 6, 4],
-  [6, 8, 16, 18, 20, 18, 16, 8, 6],
-  [8, 12, 18, 22, 25, 22, 18, 12, 8],
+  [4, 6,12,14,16,14,12, 6, 4],
+  [6, 8,16,18,20,18,16, 8, 6],
+  [8,12,18,22,25,22,18,12, 8],
   [0, 0, 2, 4, 6, 4, 2, 0, 0]
 ];
-
-var BLACK_PAWN_POS_VALUE = RED_PAWN_POS_VALUE.slice().reverse();
-
-// 将/帅在九宫格的位置价值
-var KING_POS_VALUE = [
-  [0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0, 0, 0, 1, 0, 1, 0, 0, 0],
-  [0, 0, 0, 0, 2, 0, 0, 0, 0],
-  [0, 0, 0, 1, 0, 1, 0, 0, 0],
-  [0, 0, 0, 1, 0, 1, 0, 0, 0],
-  [0, 0, 0, 0, 2, 0, 0, 0, 0],
-  [0, 0, 0, 1, 0, 1, 0, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0],
-  [0, 0, 0, 0, 0, 0, 0, 0, 0]
-];
+var BLACK_PAWN_POS = RED_PAWN_POS.slice().reverse();
 
 // 获取棋子位置价值
-function getPiecePosValue(piece, row, col) {
-  var type = piece.type;
-  var color = piece.color;
-  
-  switch(type) {
-    case 'rook':
-      return ROOK_POS_VALUE[row][col];
-    case 'knight':
-      return KNIGHT_POS_VALUE[row][col];
-    case 'cannon':
-      return CANNON_POS_VALUE[row][col];
-    case 'pawn':
-      return color === 'red' ? RED_PAWN_POS_VALUE[row][col] : BLACK_PAWN_POS_VALUE[row][col];
-    case 'king':
-      return KING_POS_VALUE[row][col];
-    default:
-      return 0;
+function getPosValue(piece, r, c) {
+  switch(piece.type) {
+    case 'rook':   return ROOK_POS[r][c];
+    case 'knight': return KNIGHT_POS[r][c];
+    case 'cannon': return CANNON_POS[r][c];
+    case 'pawn':   return piece.color === 'red' ? RED_PAWN_POS[r][c] : BLACK_PAWN_POS[r][c];
+    default:       return 0;
   }
 }
 
-// 检查棋子是否被蹩腿（针对马）
-function isHorseBlocked(b, r, c, nr, nc) {
-  var dr = nr - r;
-  var dc = nc - c;
-  // 马走日字，检查蹩脚点
-  if (Math.abs(dr) === 2 && Math.abs(dc) === 1) {
-    var blockR = r + (dr > 0 ? 1 : -1);
-    if (b[blockR][c]) return true;
-  } else if (Math.abs(dr) === 1 && Math.abs(dc) === 2) {
-    var blockC = c + (dc > 0 ? 1 : -1);
-    if (b[r][blockC]) return true;
-  }
-  return false;
-}
-
-// 检查象眼是否被堵
-function isElephantBlocked(b, r, c, nr, nc) {
-  var eyeR = (r + nr) / 2;
-  var eyeC = (c + nc) / 2;
-  return b[eyeR][eyeC] ? true : false;
-}
-
-// 高级评估函数
+// 快速评估函数
 function evaluateBoard(b) {
   var score = 0;
-  var redKing = null, blackKing = null;
-  var redRooks = 0, blackRooks = 0;
-  var redCannons = 0, blackCannons = 0;
-  var redKnights = 0, blackKnights = 0;
-  var redPawns = 0, blackPawns = 0;
-  
-  // 统计棋子和评估位置
   for (var r = 0; r < ROWS; r++) {
     for (var c = 0; c < COLS; c++) {
       if (b[r][c]) {
-        var piece = b[r][c];
-        var baseValue = PIECE_VALUES[piece.type];
-        var posValue = getPiecePosValue(piece, r, c);
-        var totalValue = baseValue + posValue;
-        
-        // 统计各棋子数量
-        if (piece.color === 'red') {
-          if (piece.type === 'king') redKing = {r: r, c: c};
-          if (piece.type === 'rook') redRooks++;
-          if (piece.type === 'cannon') redCannons++;
-          if (piece.type === 'knight') redKnights++;
-          if (piece.type === 'pawn') redPawns++;
-          score += totalValue;
-        } else {
-          if (piece.type === 'king') blackKing = {r: r, c: c};
-          if (piece.type === 'rook') blackRooks++;
-          if (piece.type === 'cannon') blackCannons++;
-          if (piece.type === 'knight') blackKnights++;
-          if (piece.type === 'pawn') blackPawns++;
-          score -= totalValue;
-        }
+        var p = b[r][c];
+        var val = PIECE_VALUES[p.type] + getPosValue(p, r, c);
+        score += (p.color === 'red') ? val : -val;
       }
     }
   }
-  
-  // 子力配合奖励
-  // 车炮配合
-  if (redRooks > 0 && redCannons > 0) score += 30;
-  if (blackRooks > 0 && blackCannons > 0) score -= 30;
-  
-  // 双车优势
-  if (redRooks >= 2) score += 40;
-  if (blackRooks >= 2) score -= 40;
-  
-  // 马炮配合
-  if (redKnights > 0 && redCannons > 0) score += 15;
-  if (blackKnights > 0 && blackCannons > 0) score -= 15;
-  
-  // 过河兵奖励
-  for (var r = 0; r < 5; r++) {
-    for (var c = 0; c < COLS; c++) {
-      if (b[r][c] && b[r][c].color === 'red' && b[r][c].type === 'pawn') {
-        score += 20; // 红兵过河
-      }
-    }
-  }
-  for (var r = 5; r < ROWS; r++) {
-    for (var c = 0; c < COLS; c++) {
-      if (b[r][c] && b[r][c].color === 'black' && b[r][c].type === 'pawn') {
-        score -= 20; // 黑卒过河
-      }
-    }
-  }
-  
-  // 将军威胁奖励
-  if (redKing && blackKing) {
-    if (redKing.c === blackKing.c) {
-      // 将帅对面，检查是否有棋子阻挡
-      var blocked = false;
-      var minR = Math.min(redKing.r, blackKing.r);
-      var maxR = Math.max(redKing.r, blackKing.r);
-      for (var r = minR + 1; r < maxR; r++) {
-        if (b[r][redKing.c]) {
-          blocked = true;
-          break;
-        }
-      }
-      if (!blocked) {
-        // 可以利用飞将
-        score += 500;
-      }
-    }
-  }
-  
   return score;
 }
 
-// Alpha-Beta 剪枝搜索
-function alphaBeta(b, depth, alpha, beta, isMaximizing, aiColor) {
-  // 深度为0或游戏结束
-  if (depth === 0) {
-    return evaluateBoard(b);
+// 快速评估单步走法
+function evaluateQuick(b, fromR, fromC, toR, toC) {
+  var piece = b[fromR][fromC];
+  var captured = b[toR][toC];
+  var enemy = piece.color === 'red' ? 'black' : 'red';
+  var score = 0;
+
+  // 1. 吃子得分（最重要）
+  if (captured) {
+    score += PIECE_VALUES[captured.type] * 2;
   }
-  
-  var currentColor = isMaximizing ? aiColor : (aiColor === 'red' ? 'black' : 'red');
-  var moves = allLegalMoves(currentColor, b);
-  
-  // 没有合法移动
-  if (moves.length === 0) {
-    if (isInCheck(currentColor, b)) {
-      // 被将杀，返回极小值
-      return isMaximizing ? -99999 + (AI_DEPTH - depth) : 99999 - (AI_DEPTH - depth);
-    }
-    // 困毙
-    return 0;
+
+  // 2. 位置得分变化
+  score += getPosValue(piece, toR, toC) - getPosValue(piece, fromR, fromC);
+
+  // 3. 执行走棋后检查
+  b[toR][toC] = piece;
+  b[fromR][fromC] = null;
+
+  // 4. 是否被将军
+  if (isInCheck(piece.color, b)) {
+    score -= 500; // 自己被将，大减分
   }
-  
-  // 对走法排序（优先考虑吃子和将军）
-  moves.sort(function(a, b) {
-    var scoreA = 0, scoreB = 0;
-    if (b[a.to.row][a.to.col]) scoreA += PIECE_VALUES[b[a.to.row][a.to.col].type] || 0;
-    if (b[b.to.row][b.to.col]) scoreB += PIECE_VALUES[b[b.to.row][b.to.col].type] || 0;
-    // 检查是否将军
-    var capturedA = b[a.to.row][a.to.col];
-    b[a.to.row][a.to.col] = b[a.from.row][a.from.col];
-    b[a.from.row][a.from.col] = null;
-    if (isInCheck(currentColor === 'red' ? 'black' : 'red', b)) scoreA += 500;
-    b[a.from.row][a.from.col] = b[a.to.row][a.to.col];
-    b[a.to.row][a.to.col] = capturedA;
-    
-    var capturedB = b[b.to.row][b.to.col];
-    b[b.to.row][b.to.col] = b[b.from.row][b.from.col];
-    b[b.from.row][b.from.col] = null;
-    if (isInCheck(currentColor === 'red' ? 'black' : 'red', b)) scoreB += 500;
-    b[b.from.row][b.from.col] = b[b.to.row][b.to.col];
-    b[b.to.row][b.to.col] = capturedB;
-    
-    return scoreB - scoreA;
-  });
-  
-  if (isMaximizing) {
-    var maxEval = -Infinity;
-    for (var i = 0; i < moves.length; i++) {
-      var move = moves[i];
-      var captured = b[move.to.row][move.to.col];
-      b[move.to.row][move.to.col] = b[move.from.row][move.from.col];
-      b[move.from.row][move.from.col] = null;
-      
-      var evalScore = alphaBeta(b, depth - 1, alpha, beta, false, aiColor);
-      
-      b[move.from.row][move.from.col] = b[move.to.row][move.to.col];
-      b[move.to.row][move.to.col] = captured;
-      
-      if (evalScore > maxEval) maxEval = evalScore;
-      if (maxEval > alpha) alpha = maxEval;
-      if (beta <= alpha) break;
-    }
-    return maxEval;
-  } else {
-    var minEval = Infinity;
-    for (var i = 0; i < moves.length; i++) {
-      var move = moves[i];
-      var captured = b[move.to.row][move.to.col];
-      b[move.to.row][move.to.col] = b[move.from.row][move.from.col];
-      b[move.from.row][move.from.col] = null;
-      
-      var evalScore = alphaBeta(b, depth - 1, alpha, beta, true, aiColor);
-      
-      b[move.from.row][move.from.col] = b[move.to.row][move.to.col];
-      b[move.to.row][move.to.col] = captured;
-      
-      if (evalScore < minEval) minEval = evalScore;
-      if (minEval < beta) beta = minEval;
-      if (beta <= alpha) break;
-    }
-    return minEval;
+
+  // 5. 是否将军对方
+  if (isInCheck(enemy, b)) {
+    score += 300; // 将军对方，大加分
   }
+
+  // 6. 对方能否吃掉我（安全性检查）
+  if (!captured || captured.type !== 'king') {
+    var enemyMoves = pseudoMovesAll(b, enemy);
+    for (var i = 0; i < enemyMoves.length; i++) {
+      if (enemyMoves[i].toR === toR && enemyMoves[i].toC === toC) {
+        // 我的棋子可以被吃掉
+        score -= PIECE_VALUES[piece.type] * 1.5;
+        break;
+      }
+    }
+  }
+
+  // 还原
+  b[fromR][fromC] = piece;
+  b[toR][toC] = captured;
+
+  return score;
+}
+
+// 获取某方所有伪合法走法（不做合法性检查，速度快）
+function pseudoMovesAll(b, color) {
+  var moves = [];
+  var enemy = color === 'red' ? 'black' : 'red';
+
+  for (var r = 0; r < ROWS; r++) {
+    for (var c = 0; c < COLS; c++) {
+      if (b[r][c] && b[r][c].color === color) {
+        var pMoves = pseudoMoves(r, c, b);
+        for (var i = 0; i < pMoves.length; i++) {
+          moves.push({
+            fromR: r, fromC: c,
+            toR: pMoves[i].row, toC: pMoves[i].col
+          });
+        }
+      }
+    }
+  }
+  return moves;
 }
 
 // AI 主函数
 function aiMove() {
   if (gameOver) return;
-  
+
   var aiColor = currentPlayer;
+  var enemy = aiColor === 'red' ? 'black' : 'red';
   var moves = allLegalMoves(aiColor, board);
-  
+
   if (moves.length === 0) return;
-  
-  // 如果只有一步棋，直接走
+
+  // 只有一步棋直接走
   if (moves.length === 1) {
     makeMove(moves[0].from.row, moves[0].from.col, moves[0].to.row, moves[0].to.col);
     return;
   }
-  
+
   var bestScore = -Infinity;
   var bestMoves = [];
-  
-  // 对走法排序，优先搜索可能好的走法
-  moves.sort(function(a, b) {
-    var scoreA = 0, scoreB = 0;
-    if (board[a.to.row][a.to.col]) scoreA = PIECE_VALUES[board[a.to.row][a.to.col].type] || 0;
-    if (board[b.to.row][b.to.col]) scoreB = PIECE_VALUES[board[b.to.row][b.to.col].type] || 0;
-    return scoreB - scoreA;
-  });
-  
+
   for (var i = 0; i < moves.length; i++) {
-    var move = moves[i];
-    var captured = board[move.to.row][move.to.col];
-    board[move.to.row][move.to.col] = board[move.from.row][move.from.col];
-    board[move.from.row][move.from.col] = null;
-    
-    // 搜索剩余深度
-    var score = alphaBeta(board, AI_DEPTH - 1, -Infinity, Infinity, false, aiColor);
-    
-    board[move.from.row][move.from.col] = board[move.to.row][move.to.col];
-    board[move.to.row][move.to.col] = captured;
-    
-    // 加入少量随机性，避免完全确定性
-    score += (Math.random() - 0.5) * 5;
-    
+    var m = moves[i];
+    var score = evaluateQuick(board, m.from.row, m.from.col, m.to.row, m.to.col);
+
+    // 加入少量随机性
+    score += (Math.random() - 0.5) * 3;
+
     if (score > bestScore) {
       bestScore = score;
-      bestMoves = [move];
+      bestMoves = [m];
     } else if (score === bestScore) {
-      bestMoves.push(move);
+      bestMoves.push(m);
     }
   }
-  
-  // 从最优走法中随机选择一个
+
   var chosen = bestMoves[Math.floor(Math.random() * bestMoves.length)];
   makeMove(chosen.from.row, chosen.from.col, chosen.to.row, chosen.to.col);
 }
-
-// ============================================================
 //  交互 - 棋盘点击（点击空白交叉点走棋）
 // ============================================================
 
@@ -1864,6 +1709,8 @@ resetGame();
 </script>
 </body>
 </html>
+
+
 
 
 
