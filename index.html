@@ -773,36 +773,73 @@ function kingsExposed(b) {
   return true;
 }
 
+// Fast attack detection - scans outward from target, much faster than generating all moves
+function isSquareAttacked(r, c, attackerColor, b) {
+  var dr, dc, nr, nc, count, i, ka, kr, kc, legR, legC;
+  var dirs4 = [[-1,0],[1,0],[0,-1],[0,1]];
+  for (i = 0; i < 4; i++) {
+    dr = dirs4[i][0]; dc = dirs4[i][1];
+    nr = r + dr; nc = c + dc;
+    while (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+      if (b[nr][nc]) {
+        if (b[nr][nc].color === attackerColor && (b[nr][nc].type === 'rook' || b[nr][nc].type === 'king')) return true;
+        break;
+      }
+      nr += dr; nc += dc;
+    }
+  }
+  for (i = 0; i < 4; i++) {
+    dr = dirs4[i][0]; dc = dirs4[i][1];
+    nr = r + dr; nc = c + dc; count = 0;
+    while (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+      if (b[nr][nc]) {
+        count++;
+        if (count === 1) { nr += dr; nc += dc; continue; }
+        if (count === 2) {
+          if (b[nr][nc].color === attackerColor && b[nr][nc].type === 'cannon') return true;
+          break;
+        }
+      }
+      nr += dr; nc += dc;
+    }
+  }
+  var knightAttacks = [[2,1,1,1],[2,-1,1,-1],[-2,1,-1,1],[-2,-1,-1,-1],[1,2,1,1],[1,-2,1,-1],[-1,2,-1,1],[-1,-2,-1,-1]];
+  for (i = 0; i < 8; i++) {
+    ka = knightAttacks[i]; kr = r + ka[0]; kc = c + ka[1]; legR = r + ka[2]; legC = c + ka[3];
+    if (kr >= 0 && kr < ROWS && kc >= 0 && kc < COLS && !b[legR][legC]) {
+      if (b[kr][kc] && b[kr][kc].color === attackerColor && b[kr][kc].type === 'knight') return true;
+    }
+  }
+  if (attackerColor === 'red') {
+    if (r + 1 < ROWS && b[r+1][c] && b[r+1][c].color === 'red' && b[r+1][c].type === 'pawn') return true;
+    if (r <= 4) {
+      if (c - 1 >= 0 && b[r][c-1] && b[r][c-1].color === 'red' && b[r][c-1].type === 'pawn') return true;
+      if (c + 1 < COLS && b[r][c+1] && b[r][c+1].color === 'red' && b[r][c+1].type === 'pawn') return true;
+    }
+  } else {
+    if (r - 1 >= 0 && b[r-1][c] && b[r-1][c].color === 'black' && b[r-1][c].type === 'pawn') return true;
+    if (r >= 5) {
+      if (c - 1 >= 0 && b[r][c-1] && b[r][c-1].color === 'black' && b[r][c-1].type === 'pawn') return true;
+      if (c + 1 < COLS && b[r][c+1] && b[r][c+1].color === 'black' && b[r][c+1].type === 'pawn') return true;
+    }
+  }
+  return false;
+}
+
 function isInCheck(color, b) {
-  var kingPos = null;
+  var kingR = -1, kingC = -1;
   for (var r = 0; r < ROWS; r++) {
     for (var c = 0; c < COLS; c++) {
       if (b[r][c] && b[r][c].type === 'king' && b[r][c].color === color) {
-        kingPos = {r: r, c: c};
-        break;
+        kingR = r; kingC = c; break;
       }
     }
-    if (kingPos) break;
+    if (kingR >= 0) break;
   }
-  if (!kingPos) return true;
-
+  if (kingR < 0) return true;
   var enemy = color === 'red' ? 'black' : 'red';
-
-  for (var r = 0; r < ROWS; r++) {
-    for (var c = 0; c < COLS; c++) {
-      if (b[r][c] && b[r][c].color === enemy) {
-        var moves = pseudoMoves(r, c, b);
-        for (var i = 0; i < moves.length; i++) {
-          if (moves[i].row === kingPos.r && moves[i].col === kingPos.c) {
-            return true;
-          }
-        }
-      }
-    }
-  }
-
+  if (isSquareAttacked(kingR, kingC, enemy, b)) return true;
   if (kingsExposed(b)) return true;
-
   return false;
 }
 
@@ -917,90 +954,160 @@ function isAITurn() {
 }
 
 // ============================================================
-//  AI 走棋
+//  AI Engine - Alpha-Beta Search
 // ============================================================
 
-var PIECE_VALUES = {
-  king: 10000,
-  rook: 600,
-  cannon: 300,
-  knight: 270,
-  bishop: 120,
-  advisor: 120,
-  pawn: 30
-};
+var PIECE_VALUES = { king: 10000, rook: 600, cannon: 300, knight: 280, bishop: 130, advisor: 130, pawn: 30 };
 
-var PAWN_POS_VALUE = [
-  [0,0,0,0,0,0,0,0,0],
-  [0,0,0,0,0,0,0,0,0],
-  [0,0,0,0,0,0,0,0,0],
-  [1,0,2,0,2,0,2,0,1],
-  [1,0,4,4,6,4,4,0,1],
-  [2,4,6,8,10,8,6,4,2],
-  [4,6,10,14,16,14,10,6,4],
-  [8,12,16,20,22,20,16,12,8],
-  [10,16,20,24,28,24,20,16,10],
-  [0,0,0,0,0,0,0,0,0]
+var ROOK_POS = [
+  [14,14,14,16,18,16,14,14,14],[16,18,20,22,22,22,20,18,16],
+  [14,16,18,20,20,20,18,16,14],[14,16,18,20,20,20,18,16,14],
+  [14,16,18,20,20,20,18,16,14],[14,16,18,20,20,20,18,16,14],
+  [12,14,16,18,18,18,16,14,12],[12,10,14,16,18,16,14,10,12],
+  [12,10,14,18,18,18,14,10,12],[10,10,12,14,16,14,12,10,10]
 ];
 
-var RED_PAWN_POS = PAWN_POS_VALUE;
-var BLACK_PAWN_POS = PAWN_POS_VALUE.slice().reverse();
+var KNIGHT_POS = [
+  [4,8,16,12,4,12,16,8,4],[4,10,28,16,8,16,28,10,4],
+  [12,14,16,20,18,20,16,14,12],[8,24,18,24,20,24,18,24,8],
+  [6,16,14,18,16,18,14,16,6],[4,12,16,14,12,14,16,12,4],
+  [2,8,8,8,4,8,8,8,2],[0,4,8,8,4,8,8,4,0],
+  [0,-2,0,4,-4,4,0,-2,0],[0,0,-2,0,0,0,-2,0,0]
+];
+
+var CANNON_POS = [
+  [6,4,0,-10,-12,-10,0,4,6],[2,2,0,-4,-14,-4,0,2,2],
+  [2,2,0,-10,-8,-10,0,2,2],[0,0,-2,4,10,4,-2,0,0],
+  [0,0,0,2,8,2,0,0,0],[-2,0,4,2,6,2,4,0,-2],
+  [0,0,0,2,4,2,0,0,0],[4,0,8,6,10,6,8,0,4],
+  [0,2,4,6,6,6,4,2,0],[6,6,2,6,6,6,2,6,6]
+];
+
+var RED_PAWN_POS = [
+  [0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],
+  [0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0],
+  [0,0,1,0,2,0,1,0,0],[2,0,4,0,6,0,4,0,2],
+  [4,6,12,14,16,14,12,6,4],[6,8,16,18,20,18,16,8,6],
+  [8,12,18,22,25,22,18,12,8],[0,0,2,4,6,4,2,0,0]
+];
+var BLACK_PAWN_POS = RED_PAWN_POS.slice().reverse();
+
+function getPosValue(piece, r, c) {
+  switch(piece.type) {
+    case 'rook': return ROOK_POS[r][c];
+    case 'knight': return KNIGHT_POS[r][c];
+    case 'cannon': return CANNON_POS[r][c];
+    case 'pawn': return piece.color === 'red' ? RED_PAWN_POS[r][c] : BLACK_PAWN_POS[r][c];
+    default: return 0;
+  }
+}
 
 function evaluateBoard(b) {
   var score = 0;
-
   for (var r = 0; r < ROWS; r++) {
     for (var c = 0; c < COLS; c++) {
       if (b[r][c]) {
-        var piece = b[r][c];
-        var val = PIECE_VALUES[piece.type];
-
-        if (piece.type === 'pawn') {
-          val += piece.color === 'red' ? RED_PAWN_POS[r][c] : BLACK_PAWN_POS[r][c];
-        }
-
-        score += piece.color === 'red' ? val : -val;
+        var p = b[r][c];
+        var val = PIECE_VALUES[p.type] + getPosValue(p, r, c);
+        score += (p.color === 'red') ? val : -val;
       }
     }
   }
-
   return score;
+}
+
+function orderMoves(moves, b) {
+  for (var i = 0; i < moves.length; i++) {
+    var m = moves[i]; var sc = 0;
+    var captured = b[m.to.row][m.to.col];
+    var attacker = b[m.from.row][m.from.col];
+    if (captured) sc = PIECE_VALUES[captured.type] * 10 - PIECE_VALUES[attacker.type];
+    var origTarget = b[m.to.row][m.to.col];
+    b[m.to.row][m.to.col] = b[m.from.row][m.from.col];
+    b[m.from.row][m.from.col] = null;
+    var enemy = attacker.color === 'red' ? 'black' : 'red';
+    if (isInCheck(enemy, b)) sc += 5000;
+    b[m.from.row][m.from.col] = b[m.to.row][m.to.col];
+    b[m.to.row][m.to.col] = origTarget;
+    m._orderScore = sc;
+  }
+  moves.sort(function(a, b) { return b._orderScore - a._orderScore; });
+  return moves;
+}
+
+var AI_TIME_LIMIT = 2000;
+var aiStartTime = 0;
+var aiTimedOut = false;
+
+function alphaBeta(b, depth, alpha, beta, isMaximizing, aiColor) {
+  if (aiTimedOut) return 0;
+  if (Date.now() - aiStartTime > AI_TIME_LIMIT) { aiTimedOut = true; return 0; }
+  var color = isMaximizing ? aiColor : (aiColor === 'red' ? 'black' : 'red');
+  if (depth <= 0) return evaluateBoard(b);
+  var moves = allLegalMoves(color, b);
+  if (moves.length === 0) {
+    if (isInCheck(color, b)) return isMaximizing ? (-99999 - depth) : (99999 + depth);
+    return 0;
+  }
+  orderMoves(moves, b);
+  if (isMaximizing) {
+    var maxEval = -Infinity;
+    for (var i = 0; i < moves.length; i++) {
+      if (aiTimedOut) break;
+      var m = moves[i];
+      var cap = b[m.to.row][m.to.col]; var pc = b[m.from.row][m.from.col];
+      b[m.to.row][m.to.col] = pc; b[m.from.row][m.from.col] = null;
+      var ms = alphaBeta(b, depth - 1, alpha, beta, false, aiColor);
+      b[m.from.row][m.from.col] = pc; b[m.to.row][m.to.col] = cap;
+      if (ms > maxEval) maxEval = ms;
+      if (ms > alpha) alpha = ms;
+      if (beta <= alpha) break;
+    }
+    return maxEval;
+  } else {
+    var minEval = Infinity;
+    for (var i = 0; i < moves.length; i++) {
+      if (aiTimedOut) break;
+      var m = moves[i];
+      var cap = b[m.to.row][m.to.col]; var pc = b[m.from.row][m.from.col];
+      b[m.to.row][m.to.col] = pc; b[m.from.row][m.from.col] = null;
+      var ms = alphaBeta(b, depth - 1, alpha, beta, true, aiColor);
+      b[m.from.row][m.from.col] = pc; b[m.to.row][m.to.col] = cap;
+      if (ms < minEval) minEval = ms;
+      if (ms < beta) beta = ms;
+      if (beta <= alpha) break;
+    }
+    return minEval;
+  }
 }
 
 function aiMove() {
   if (gameOver) return;
-
-  var moves = allLegalMoves(currentPlayer, board);
+  var aiColor = currentPlayer;
+  var moves = allLegalMoves(aiColor, board);
   if (moves.length === 0) return;
-
+  if (moves.length === 1) {
+    makeMove(moves[0].from.row, moves[0].from.col, moves[0].to.row, moves[0].to.col);
+    return;
+  }
+  aiStartTime = Date.now();
+  aiTimedOut = false;
+  orderMoves(moves, board);
   var bestScore = -Infinity;
-  var bestMoves = [];
-
+  var bestMove = moves[0];
   for (var i = 0; i < moves.length; i++) {
-    var move = moves[i];
-    var captured = board[move.to.row][move.to.col];
-    board[move.to.row][move.to.col] = board[move.from.row][move.from.col];
-    board[move.from.row][move.from.col] = null;
-
-    var score = evaluateBoard(board);
-    score += (Math.random() - 0.5) * 20;
-
-    board[move.from.row][move.from.col] = board[move.to.row][move.to.col];
-    board[move.to.row][move.to.col] = captured;
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMoves = [move];
-    } else if (score === bestScore) {
-      bestMoves.push(move);
+    if (aiTimedOut && i > 0) break;
+    var m = moves[i];
+    var cap = board[m.to.row][m.to.col]; var pc = board[m.from.row][m.from.col];
+    board[m.to.row][m.to.col] = pc; board[m.from.row][m.from.col] = null;
+    var ms = alphaBeta(board, 2, -Infinity, Infinity, false, aiColor);
+    board[m.from.row][m.from.col] = pc; board[m.to.row][m.to.col] = cap;
+    if (ms > bestScore) {
+      bestScore = ms; bestMove = m;
     }
   }
-
-  var chosen = bestMoves[Math.floor(Math.random() * bestMoves.length)];
-  makeMove(chosen.from.row, chosen.from.col, chosen.to.row, chosen.to.col);
+  makeMove(bestMove.from.row, bestMove.from.col, bestMove.to.row, bestMove.to.col);
 }
-
-// ============================================================
 //  交互 - 棋盘点击（点击空白交叉点走棋）
 // ============================================================
 
@@ -1585,6 +1692,9 @@ resetGame();
 </script>
 </body>
 </html>
+
+
+
 
 
 
